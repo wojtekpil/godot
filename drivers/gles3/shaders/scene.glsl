@@ -539,15 +539,15 @@ out vec3 binormal_interp;
 
 #ifndef RENDER_MOTION_VECTORS
 #ifdef USE_ADDITIVE_LIGHTING
-out highp vec4 shadow_coord;
+out highp vec3 shadow_base_coord;
 
 #if defined(LIGHT_USE_PSSM2) || defined(LIGHT_USE_PSSM4)
-out highp vec4 shadow_coord2;
+out highp vec3 shadow_base_coord2;
 #endif
 
 #ifdef LIGHT_USE_PSSM4
-out highp vec4 shadow_coord3;
-out highp vec4 shadow_coord4;
+out highp vec3 shadow_base_coord3;
+out highp vec3 shadow_base_coord4;
 #endif // LIGHT_USE_PSSM4
 #endif // USE_ADDITIVE_LIGHTING
 #endif // RENDER_MOTION_VECTORS
@@ -757,39 +757,19 @@ void vertex_shader(vec4 vertex_angle_attrib_input,
 #endif
 
 #ifndef RENDER_MOTION_VECTORS
-	// Calculate shadows.
 #ifdef USE_ADDITIVE_LIGHTING
-#if defined(ADDITIVE_OMNI) || defined(ADDITIVE_SPOT)
-	// Apply normal bias at draw time to avoid issues with scaling non-fused geometry.
-	vec3 light_rel_vec = positional_shadows[positional_shadow_index].light_position - vertex_interp;
-	float light_length = length(light_rel_vec);
-	float aNdotL = abs(dot(normalize(normal_interp), normalize(light_rel_vec)));
-	vec3 normal_offset = (1.0 - aNdotL) * positional_shadows[positional_shadow_index].shadow_normal_bias * light_length * normal_interp;
-
-#ifdef ADDITIVE_SPOT
-	// Calculate coord here so we can take advantage of prefetch.
-	shadow_coord = positional_shadows[positional_shadow_index].shadow_matrix * vec4(vertex_interp + normal_offset, 1.0);
-#endif
-
-#ifdef ADDITIVE_OMNI
-	// Can't interpolate unit direction nicely, so forget about prefetch.
-	shadow_coord = vec4(vertex_interp + normal_offset, 1.0);
-#endif
-#else // ADDITIVE_DIRECTIONAL
-	vec3 base_normal_bias = normalize(normal_interp) * (1.0 - max(0.0, dot(directional_shadows[directional_shadow_index].direction, -normalize(normal_interp))));
-	vec3 normal_offset = base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.x;
-	shadow_coord = directional_shadows[directional_shadow_index].shadow_matrix1 * vec4(vertex_interp + normal_offset, 1.0);
-
+#if !defined(ADDITIVE_OMNI) && !defined(ADDITIVE_SPOT)
+	// Directional lights use orthographic projections (w = 1).
+	// Interpolate projected unbiased xyz, not the biased vertex normals.
+	highp vec4 receiver_pos = vec4(vertex_interp, 1.0);
+	shadow_base_coord = (directional_shadows[directional_shadow_index].shadow_matrix1 * receiver_pos).xyz;
 #if defined(LIGHT_USE_PSSM2) || defined(LIGHT_USE_PSSM4)
-	normal_offset = base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.y;
-	shadow_coord2 = directional_shadows[directional_shadow_index].shadow_matrix2 * vec4(vertex_interp + normal_offset, 1.0);
+	shadow_base_coord2 = (directional_shadows[directional_shadow_index].shadow_matrix2 * receiver_pos).xyz;
 #endif
 
 #ifdef LIGHT_USE_PSSM4
-	normal_offset = base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.z;
-	shadow_coord3 = directional_shadows[directional_shadow_index].shadow_matrix3 * vec4(vertex_interp + normal_offset, 1.0);
-	normal_offset = base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.w;
-	shadow_coord4 = directional_shadows[directional_shadow_index].shadow_matrix4 * vec4(vertex_interp + normal_offset, 1.0);
+	shadow_base_coord3 = (directional_shadows[directional_shadow_index].shadow_matrix3 * receiver_pos).xyz;
+	shadow_base_coord4 = (directional_shadows[directional_shadow_index].shadow_matrix4 * receiver_pos).xyz;
 #endif //LIGHT_USE_PSSM4
 
 #endif // !(defined(ADDITIVE_OMNI) || defined(ADDITIVE_SPOT))
@@ -1062,15 +1042,15 @@ in vec3 normal_interp;
 in highp vec3 vertex_interp;
 
 #ifdef USE_ADDITIVE_LIGHTING
-in highp vec4 shadow_coord;
+in highp vec3 shadow_base_coord;
 
 #if defined(LIGHT_USE_PSSM2) || defined(LIGHT_USE_PSSM4)
-in highp vec4 shadow_coord2;
+in highp vec3 shadow_base_coord2;
 #endif
 
 #ifdef LIGHT_USE_PSSM4
-in highp vec4 shadow_coord3;
-in highp vec4 shadow_coord4;
+in highp vec3 shadow_base_coord3;
+in highp vec3 shadow_base_coord4;
 #endif //LIGHT_USE_PSSM4
 #endif
 
@@ -2808,6 +2788,26 @@ void main() {
 	if (lightmap_shadowmask_mode != SHADOWMASK_MODE_ONLY) {
 #endif
 
+	highp vec3 face_normal = normalize(geo_normal);
+	highp vec3 base_normal_bias = face_normal *
+			(1.0 - max(0.0, dot(directional_shadows[directional_shadow_index].direction, -face_normal)));
+	highp vec4 shadow_coord = vec4(shadow_base_coord +
+			mat3(directional_shadows[directional_shadow_index].shadow_matrix1) *
+			(base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.x), 1.0);
+#if defined(LIGHT_USE_PSSM2) || defined(LIGHT_USE_PSSM4)
+	highp vec4 shadow_coord2 = vec4(shadow_base_coord2 +
+			mat3(directional_shadows[directional_shadow_index].shadow_matrix2) *
+			(base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.y), 1.0);
+#endif
+#ifdef LIGHT_USE_PSSM4
+	highp vec4 shadow_coord3 = vec4(shadow_base_coord3 +
+			mat3(directional_shadows[directional_shadow_index].shadow_matrix3) *
+			(base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.z), 1.0);
+	highp vec4 shadow_coord4 = vec4(shadow_base_coord4 +
+			mat3(directional_shadows[directional_shadow_index].shadow_matrix4) *
+			(base_normal_bias * directional_shadows[directional_shadow_index].shadow_normal_bias.w), 1.0);
+#endif
+
 // Orthogonal shadows
 #if !defined(LIGHT_USE_PSSM2) && !defined(LIGHT_USE_PSSM4)
 		directional_shadow = sample_shadow(directional_shadow_atlas, directional_shadows[directional_shadow_index].shadow_atlas_pixel_size, shadow_coord);
@@ -2962,7 +2962,14 @@ void main() {
 #ifdef ADDITIVE_OMNI
 	float omni_shadow = 1.0f;
 #ifndef SHADOWS_DISABLED
-	vec3 light_ray = ((positional_shadows[positional_shadow_index].shadow_matrix * vec4(shadow_coord.xyz, 1.0))).xyz;
+	highp vec3 light_rel_vec = positional_shadows[positional_shadow_index].light_position - vertex_interp;
+	highp float light_length = length(light_rel_vec);
+	highp vec3 face_normal = normalize(geo_normal);
+	highp float aNdotL = abs(dot(face_normal, normalize(light_rel_vec)));
+	highp vec3 normal_offset = (1.0 - aNdotL) *
+			positional_shadows[positional_shadow_index].shadow_normal_bias * light_length * face_normal;
+	highp vec3 light_ray = (positional_shadows[positional_shadow_index].shadow_matrix *
+			vec4(vertex_interp + normal_offset, 1.0)).xyz;
 	omni_shadow = texture(omni_shadow_texture, vec4(light_ray, 1.0 - length(light_ray) * omni_lights[omni_light_index].inv_radius));
 	omni_shadow = mix(1.0, omni_shadow, omni_lights[omni_light_index].shadow_opacity);
 #endif // SHADOWS_DISABLED
@@ -2993,6 +3000,14 @@ void main() {
 #ifdef ADDITIVE_SPOT
 	float spot_shadow = 1.0f;
 #ifndef SHADOWS_DISABLED
+	highp vec3 light_rel_vec = positional_shadows[positional_shadow_index].light_position - vertex_interp;
+	highp float light_length = length(light_rel_vec);
+	highp vec3 face_normal = normalize(geo_normal);
+	highp float aNdotL = abs(dot(face_normal, normalize(light_rel_vec)));
+	highp vec3 normal_offset = (1.0 - aNdotL) *
+			positional_shadows[positional_shadow_index].shadow_normal_bias * light_length * face_normal;
+	highp vec4 shadow_coord = positional_shadows[positional_shadow_index].shadow_matrix *
+			vec4(vertex_interp + normal_offset, 1.0);
 	spot_shadow = sample_shadow(spot_shadow_texture, positional_shadows[positional_shadow_index].shadow_atlas_pixel_size, shadow_coord);
 	spot_shadow = mix(1.0, spot_shadow, spot_lights[spot_light_index].shadow_opacity);
 #endif // SHADOWS_DISABLED
