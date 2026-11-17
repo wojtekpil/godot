@@ -349,26 +349,32 @@ void vertex_shader(in vec3 vertex,
 #endif
 
 #else
-		uint stride = multimesh_stride();
-		uint offset = stride * (INSTANCE_INDEX + multimesh_offset);
-
-		if (sc_multimesh_format_2d()) {
-			matrix = mat4(transforms.data[offset + 0], transforms.data[offset + 1], vec4(0.0, 0.0, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 1.0));
-			offset += 2;
-		} else {
-			matrix = mat4(transforms.data[offset + 0], transforms.data[offset + 1], transforms.data[offset + 2], vec4(0.0, 0.0, 0.0, 1.0));
-			offset += 3;
+		if (!sc_multimesh_has_color()) { // just a hack, if color is not used, use our hacky path
+			instance_custom = transforms.data[INSTANCE_INDEX + multimesh_offset];
+			matrix = mat4(1.0);
 		}
+		else {
+			uint stride = multimesh_stride();
+			uint offset = stride * (INSTANCE_INDEX + multimesh_offset);
 
-		if (sc_multimesh_has_color()) {
+			if (sc_multimesh_format_2d()) {
+				matrix = mat4(transforms.data[offset + 0], transforms.data[offset + 1], vec4(0.0, 0.0, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+				offset += 2;
+			} else {
+				matrix = mat4(transforms.data[offset + 0], transforms.data[offset + 1], transforms.data[offset + 2], vec4(0.0, 0.0, 0.0, 1.0));
+				offset += 3;
+			}
+
+			if (sc_multimesh_has_color()) {
 #ifdef COLOR_USED
-			color_highp *= transforms.data[offset];
+				color_highp *= transforms.data[offset];
 #endif
-			offset += 1;
-		}
+				offset += 1;
+			}
 
-		if (sc_multimesh_has_custom_data()) {
-			instance_custom = transforms.data[offset];
+			if (sc_multimesh_has_custom_data()) {
+				instance_custom = transforms.data[offset];
+			}
 		}
 
 #endif

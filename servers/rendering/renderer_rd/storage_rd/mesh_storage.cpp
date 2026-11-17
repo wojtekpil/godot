@@ -1578,6 +1578,10 @@ void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
 
+	p_transform_format = RSE::MULTIMESH_TRANSFORM_DISABLED;
+	p_use_colors = false;
+	p_use_custom_data = true;
+
 	if (multimesh->instances == p_instances && multimesh->xform_format == p_transform_format && multimesh->uses_colors == p_use_colors && multimesh->uses_custom_data == p_use_custom_data) {
 		return;
 	}
@@ -1604,10 +1608,10 @@ void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE
 	multimesh->instances = p_instances;
 	multimesh->xform_format = p_transform_format;
 	multimesh->uses_colors = p_use_colors;
-	multimesh->color_offset_cache = p_transform_format == RSE::MULTIMESH_TRANSFORM_2D ? 8 : 12;
+	multimesh->color_offset_cache = 0;
 	multimesh->uses_custom_data = p_use_custom_data;
-	multimesh->custom_data_offset_cache = multimesh->color_offset_cache + (p_use_colors ? 4 : 0);
-	multimesh->stride_cache = multimesh->custom_data_offset_cache + (p_use_custom_data ? 4 : 0);
+	multimesh->custom_data_offset_cache = 0;
+	multimesh->stride_cache = 4;
 	multimesh->buffer_set = false;
 
 	multimesh->indirect = p_use_indirect;
@@ -1866,7 +1870,7 @@ void MeshStorage::_multimesh_mark_all_dirty(MultiMesh *multimesh, bool p_data, b
 
 void MeshStorage::_multimesh_re_create_aabb(MultiMesh *multimesh, const float *p_data, int p_instances) {
 	ERR_FAIL_COND(multimesh->mesh.is_null());
-	if (multimesh->custom_aabb != AABB()) {
+	if (multimesh->custom_aabb != AABB() || multimesh->xform_format == RSE::MULTIMESH_TRANSFORM_DISABLED) {
 		return;
 	}
 	AABB aabb;
