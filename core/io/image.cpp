@@ -90,6 +90,8 @@ const char *Image::format_names[Image::FORMAT_MAX] = {
 	"RGBA16Int",
 	"ASTC_6x6",
 	"ASTC_6x6_HDR",
+	"RGBA32UInt",
+	"RG32UInt",
 };
 
 // External VRAM compression function pointers.
@@ -232,6 +234,10 @@ int Image::get_format_pixel_size(Format p_format) {
 		case FORMAT_RGB16I:
 			return 6;
 		case FORMAT_RGBA16I:
+			return 8;
+		case FORMAT_RGBA32UI:
+			return 16;
+		case FORMAT_RG32UI:
 			return 8;
 		case FORMAT_MAX: {
 		}
@@ -602,6 +608,8 @@ void Image::convert(Format p_new_format) {
 		return;
 	}
 
+	ERR_FAIL_COND_MSG(format == FORMAT_RGBA32UI || p_new_format == FORMAT_RGBA32UI, "Converting to or from FORMAT_RGBA32UI is not supported. Use raw pixel data instead.");
+	ERR_FAIL_COND_MSG(format == FORMAT_RG32UI || p_new_format == FORMAT_RG32UI, "Converting to or from FORMAT_RGBA32UI is not supported. Use raw pixel data instead.");
 	// Includes the main image.
 	const int mipmap_count = get_mipmap_count() + 1;
 
@@ -1282,6 +1290,8 @@ void Image::resize_to_po2(bool p_square, Interpolation p_interpolation) {
 void Image::resize(int p_width, int p_height, Interpolation p_interpolation) {
 	ERR_FAIL_COND_MSG(data.is_empty(), "Cannot resize image before creating it, use set_data() first.");
 	ERR_FAIL_COND_MSG(is_compressed(), "Cannot resize in compressed image formats.");
+	ERR_FAIL_COND_MSG(format == FORMAT_RGBA32UI && p_interpolation != INTERPOLATE_NEAREST, "FORMAT_RGBA32UI can only be resized using nearest-neighbor interpolation.");
+	ERR_FAIL_COND_MSG(format == FORMAT_RG32UI && p_interpolation != INTERPOLATE_NEAREST, "FORMAT_RG32UI can only be resized using nearest-neighbor interpolation.");
 	ERR_FAIL_COND_MSG(p_width <= 0, "Image width must be greater than 0.");
 	ERR_FAIL_COND_MSG(p_height <= 0, "Image height must be greater than 0.");
 	ERR_FAIL_COND_MSG(p_width > MAX_WIDTH, vformat("Image width cannot be greater than %d pixels.", MAX_WIDTH));
@@ -1400,6 +1410,10 @@ void Image::resize(int p_width, int p_height, Interpolation p_interpolation) {
 						_scale_nearest<4, uint16_t>(r_ptr, w_ptr, width, height, p_width, p_height);
 						break;
 				}
+			} else if (format == FORMAT_RGBA32UI) {
+				_scale_nearest<4, uint32_t>(r_ptr, w_ptr, width, height, p_width, p_height);
+			} else if (format == FORMAT_RG32UI) {
+				_scale_nearest<2, uint32_t>(r_ptr, w_ptr, width, height, p_width, p_height);
 			}
 
 		} break;
@@ -2183,6 +2197,8 @@ void Image::normalize() {
 
 Error Image::generate_mipmaps(bool p_renormalize) {
 	ERR_FAIL_COND_V_MSG(is_compressed(), ERR_UNAVAILABLE, "Cannot generate mipmaps from compressed image formats.");
+	ERR_FAIL_COND_V_MSG(format == FORMAT_RGBA32UI, ERR_UNAVAILABLE, "Mipmap generation for FORMAT_RGBA32UI data textures is not supported.");
+	ERR_FAIL_COND_V_MSG(format == FORMAT_RG32UI, ERR_UNAVAILABLE, "Mipmap generation for FORMAT_RG32UI data textures is not supported.");
 	ERR_FAIL_COND_V_MSG(width == 0 || height == 0, ERR_UNCONFIGURED, "Cannot generate mipmaps with width or height equal to 0.");
 
 	int gen_mipmap_count;
@@ -3590,6 +3606,14 @@ Color Image::_get_color_at_ofs(const uint8_t *p_ptr, uint32_t p_ofs) const {
 			uint16_t a = ((uint16_t *)p_ptr)[p_ofs * 4 + 3];
 			return Color(r, g, b, a);
 		}
+		case FORMAT_RGBA32UI: {
+			const uint32_t *px = reinterpret_cast<const uint32_t *>(p_ptr) + p_ofs * 4;
+			return Color(px[0], px[1], px[2], px[3]);
+		}
+		case FORMAT_RG32UI: {
+			const uint32_t *px = reinterpret_cast<const uint32_t *>(p_ptr) + p_ofs * 2;
+			return Color(px[0], px[1], 0, 1);
+		}
 
 		default: {
 			ERR_FAIL_V_MSG(Color(), "Can't get_pixel() on compressed image, sorry.");
@@ -3704,6 +3728,18 @@ void Image::_set_color_at_ofs(uint8_t *r_ptr, uint32_t p_ofs, const Color &p_col
 			((uint16_t *)r_ptr)[p_ofs * 4 + 1] = uint16_t(CLAMP(p_color.g, 0, 65535));
 			((uint16_t *)r_ptr)[p_ofs * 4 + 2] = uint16_t(CLAMP(p_color.b, 0, 65535));
 			((uint16_t *)r_ptr)[p_ofs * 4 + 3] = uint16_t(CLAMP(p_color.a, 0, 65535));
+		} break;
+		case FORMAT_RGBA32UI: {
+			uint32_t *px = reinterpret_cast<uint32_t *>(r_ptr) + p_ofs * 4;
+			px[0] = uint32_t(CLAMP(double(p_color.r), 0.0, 4294967295.0));
+			px[1] = uint32_t(CLAMP(double(p_color.g), 0.0, 4294967295.0));
+			px[2] = uint32_t(CLAMP(double(p_color.b), 0.0, 4294967295.0));
+			px[3] = uint32_t(CLAMP(double(p_color.a), 0.0, 4294967295.0));
+		} break;
+		case FORMAT_RG32UI: {
+			uint32_t *px = reinterpret_cast<uint32_t *>(r_ptr) + p_ofs * 2;
+			px[0] = uint32_t(CLAMP(double(p_color.r), 0.0, 4294967295.0));
+			px[1] = uint32_t(CLAMP(double(p_color.g), 0.0, 4294967295.0));
 		} break;
 
 		default: {
@@ -4029,6 +4065,8 @@ void Image::_bind_methods() {
 	BIND_ENUM_CONSTANT(FORMAT_RGBA16I);
 	BIND_ENUM_CONSTANT(FORMAT_ASTC_6x6);
 	BIND_ENUM_CONSTANT(FORMAT_ASTC_6x6_HDR);
+	BIND_ENUM_CONSTANT(FORMAT_RGBA32UI);
+	BIND_ENUM_CONSTANT(FORMAT_RG32UI);
 	BIND_ENUM_CONSTANT(FORMAT_MAX);
 
 	BIND_ENUM_CONSTANT(INTERPOLATE_NEAREST);
@@ -4470,6 +4508,10 @@ uint32_t Image::get_format_component_mask(Format p_format) {
 			return rgb;
 		case FORMAT_RGBA16I:
 			return rgba;
+		case FORMAT_RGBA32UI:
+			return rgba;
+		case FORMAT_RG32UI:
+			return rg;
 		default:
 			ERR_PRINT("Unhandled format.");
 			return rgba;

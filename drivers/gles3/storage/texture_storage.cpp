@@ -711,6 +711,16 @@ static inline Error _get_gl_uncompressed_format(const Ref<Image> &p_image, Image
 			r_gl_format = GL_RGBA_INTEGER;
 			r_gl_type = GL_UNSIGNED_SHORT;
 		} break;
+		case Image::FORMAT_RGBA32UI: {
+			r_gl_internal_format = GL_RGBA32UI;
+			r_gl_format = GL_RGBA_INTEGER;
+			r_gl_type = GL_UNSIGNED_INT;
+		} break;
+		case Image::FORMAT_RG32UI: {
+			r_gl_internal_format = GL_RG32UI;
+			r_gl_format = GL_RG_INTEGER;
+			r_gl_type = GL_UNSIGNED_INT;
+		} break;
 		default: {
 			return ERR_UNAVAILABLE;
 		}
